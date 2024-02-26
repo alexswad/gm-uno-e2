@@ -1,0 +1,876 @@
+# Made by Axel
+@name Uno1.6
+@inputs [P1 P2 P3 P4]:number [C1 C2 C3 C4]:number EGP:wirelink Start Reset LoadData:array Load Autokick
+@outputs [H1 H2 H3 H4]:array CurrCard OTurn CStacking SaveData:array CanSave
+@persist Deck:array Active Direction Plys CardColors:array ActivePlys:table Turn Animate SysDiff SkipEffect Drawing Stack 
+@trigger all
+
+# 0-9 normal faces
+# 10 Skip
+# 11 Reverse
+# 12 Draw 2
+# 13 Wild
+# 14 Draw 4
+
+
+##SETTINGS!!!!
+DrawOnce = 0 # Disables the rule where the player draws until they get a playable card
+Draw2Stacking = 1 # Enable players stacking draw 2s 
+#SevenZeroRule = 0
+
+StartCards = 7 # Cards given at start
+LateCards = 8 # Cards given for autojoin
+TurnDelay = 2000 # How much time between turns
+
+AutoJoin = 1 # Enable players joining mid-game
+AutokickDelay = 5000 # How long before a player is kicked for not sitting
+
+AllPlayersAutoJoin = 0 ### Testing purposes
+
+#########
+
+if (~Reset | duped()) {
+    reset()   
+}
+
+###INIT###
+if (first()) {
+    # black, green, blue, yellow, red
+    CardColors = array(vec(0, 0, 0), vec(0, 200, 0), vec(0, 0, 255), vec(200, 180, 0), vec(255, 0, 0))
+    
+    ## setup
+    Deck = array()
+    H1 = array()
+    H2 = array()
+    H3 = array()
+    H4 = array()
+    Active = 0
+    Direction = 1
+    Plys = 0
+    Turn = 0
+    ActivePlys = table()
+    Animate = 0
+    SkipEffect = 0
+    Drawing = 0
+    Stack = 0
+    CStacking = 0
+    OTurn = 0
+    
+    CurrCard = 0
+    
+    EGP:egpResolution(vec2(0, 0), vec2(512, 512))
+    EGP:egpClear()
+
+    ## functions
+    function save() {
+        if (!Active) {return}
+        SaveData = array()
+        
+        CanSave = 1
+        timer("save", 100)
+    }
+    
+    function array buildDeck() {
+        local Cards = array()
+        local CurrArray = 1
+
+        for (S = 1, 4, 1) {
+            for (I = 0, 12, 1) {
+                Cards[CurrArray, number] = I + 2 ^ (3 + S)
+                CurrArray++    
+                if (I != 0) {
+                    Cards[CurrArray, number] = I + 2 ^ (3 + S)
+                    CurrArray++
+                }
+            }
+
+            Cards[CurrArray, number] = 13
+            CurrArray++
+
+            Cards[CurrArray, number] = 14
+            CurrArray++
+        }
+
+        return Cards
+    }
+    
+    function number getCardSuite(N:number) {
+        return max(0, log2(bAnd(N, 240)) - 3)  
+    }
+    
+    function number getCardValue(N:number) {
+        return max(0, bAnd(N, 15))
+    }
+    
+    function number compareCards(A:number, B:number) {
+        local ASuite = getCardSuite(A)
+        local AValue = getCardValue(A)
+        local BValue = getCardValue(B)
+        local BSuite = getCardSuite(B)
+        
+        if (ASuite != 0 & BSuite != 0 & AValue != BValue & ASuite != BSuite) {
+            return 0    
+        }
+        return 1
+    }
+    
+    function number compareCardsValue(A:number, B:number) {
+        local AValue = getCardValue(A)
+        local BValue = getCardValue(B)
+        
+        return BValue == AValue
+    }
+    
+    function renderCard(N:number, P:vector2, C:number, S:number) {
+        for (I=0, 6, 1) {
+            EGP:egpRemove(N + I)
+            EGP:egpOrderBelow(N + I, N + 6)
+        }
+        EGP:egpRoundedBox(N, P, vec2(98 * S, 150 * S))
+        
+        EGP:egpRoundedBox(N + 1, vec2(), vec2((98 - 10) * S, (150 - 10) * S))
+        EGP:egpColor(N + 1, CardColors[getCardSuite(C) + 1, vector])
+        EGP:egpParent(N + 1, N)
+        
+        local CValue = getCardValue(C)
+        if (CValue <= 9) {
+            EGP:egpText(N + 2, toString(CValue), vec2(0, 0))
+            EGP:egpSize(N + 2, 100 * S)
+            EGP:egpAlign(N + 2, 1, 1)
+            EGP:egpParent(N + 2, N)
+            if (CValue == 9 | CValue == 6) {
+                EGP:egpLine(N + 3, vec2(-35, 45) * S, vec2(35, 45) * S)
+                EGP:egpSize(N + 3, 5)
+                EGP:egpParent(N + 3, N)
+            }
+        } elseif (CValue == 10) {
+            EGP:egpCircle(N + 2, vec2(), vec2(30, 30) * S)
+            EGP:egpParent(N + 2, N)
+            
+            EGP:egpCircle(N + 3, vec2(), vec2(25, 25) * S)
+            EGP:egpParent(N + 3, N)
+            EGP:egpColor(N + 3, CardColors[getCardSuite(C) + 1, vector])
+            
+            EGP:egpLine(N + 4, vec2(-20, 20) * S, vec2(20, -20) * S)
+            EGP:egpSize(N + 4, 5 * S)
+            EGP:egpParent(N + 4, N)
+        } elseif (CValue == 11) {
+            EGP:egpLine(N + 2, vec2(-20, 30) * S, vec2(20, -10) * S)
+            EGP:egpSize(N + 2, 5 * S)
+            EGP:egpParent(N + 2, N)
+            
+            EGP:egpTriangle(N + 3, vec2(-25, 25) * S, vec2(-15, 35) * S, vec2(-35, 45) * S)
+            EGP:egpParent(N + 3, N)
+            
+            EGP:egpLine(N + 4, vec2(-20, 15) * S, vec2(20, -25) * S)
+            EGP:egpSize(N + 4, 5 * S)
+            EGP:egpParent(N + 4, N)
+            
+            EGP:egpTriangle(N + 5, vec2(25, -20) * S, vec2(15, -30) * S, vec2(35, -40) * S)
+            EGP:egpParent(N + 5, N)
+        } elseif (CValue == 12) {
+            EGP:egpText(N + 2, "+2", vec2(0, 0))
+            EGP:egpSize(N + 2, 59 * S)
+            EGP:egpAlign(N + 2, 1, 1)
+            EGP:egpParent(N + 2, N)
+        } elseif (CValue == 13 | CValue == 14) {
+            EGP:egpBox(N + 2, vec2(-15, -15) * S, vec2(30, 30) * S)
+            EGP:egpColor(N + 2, CardColors[2, vector])
+            EGP:egpParent(N + 2, N)
+            
+            EGP:egpBox(N + 3, vec2(15, -15) * S, vec2(30, 30) * S)
+            EGP:egpColor(N + 3, CardColors[3, vector])
+            EGP:egpParent(N + 3, N)
+            
+            EGP:egpBox(N + 4, vec2(-15, 15) * S, vec2(30, 30) * S)
+            EGP:egpColor(N + 4, CardColors[4, vector])
+            EGP:egpParent(N + 4, N)
+            
+            EGP:egpBox(N + 5, vec2(15, 15) * S, vec2(30, 30) * S)
+            EGP:egpColor(N + 5, CardColors[5, vector])
+            EGP:egpParent(N + 5, N)
+            
+            if (CValue == 14) {
+                EGP:egpText(N + 6, "+4", vec2(0, 0))
+                EGP:egpSize(N + 6, 50 * S)
+                EGP:egpAlign(N + 6, 1, 1)
+                EGP:egpParent(N + 6, N)
+            }
+        }   
+    }
+    
+    function number drawCard() {
+        if (Deck:count() < 1) {
+            Deck = buildDeck()
+        }
+        local Card = round(random(1, Deck:count()))
+        local Val = Deck[Card, number]
+        Deck:remove(Card)
+        return Val
+    }
+    
+    function drawPlyMsg(C:vector, S:string, P:number, A:number, BS:number, TS:number) {
+        local ID = 20 + P * 4
+        EGP:egpBox(ID, vec2(256, 512 - 40), vec2(BS, 80))
+        EGP:egpColor(ID, C)
+        
+        EGP:egpText(ID + 1, S, vec2(0, 0))
+        EGP:egpSize(ID + 1, TS)
+        EGP:egpAlign(ID + 1, 1, 2)
+        EGP:egpParent(ID + 1, ID)
+        
+        if (A) {
+            if(Direction == 1) {
+                EGP:egpBox(ID + 2, vec2(130, -10) , vec2(120, 10))       
+                EGP:egpTriangle(ID + 3, vec2(190, -20), vec2(190, 0), vec2(210, -10))
+            } else {
+                EGP:egpBox(ID + 2, vec2(-130, -10) , vec2(120, 10))
+                EGP:egpTriangle(ID + 3, vec2(-190, -20), vec2(-190, 0), vec2(-210, -10))    
+            }
+            EGP:egpParent(ID + 2, ID)
+            EGP:egpParent(ID + 3, ID)
+        } else {
+            EGP:egpRemove(ID + 2)
+            EGP:egpRemove(ID + 3)
+        }
+        
+        switch(P) {
+            case 2,
+                EGP:egpAngle(ID, 90)
+                EGP:egpPos(ID, vec2(512 - 40, 256))
+                break
+            case 3,
+                EGP:egpAngle(ID, 180)
+                EGP:egpPos(ID, vec2(256, 40))
+                break
+            case 4,
+                EGP:egpAngle(ID, 270)
+                EGP:egpPos(ID, vec2(40, 256))
+                break
+        }
+    }
+    
+    ## drawPlyMsg default parameters
+    function drawPlyMsg(C:vector, S:string, P:number, A:number) {
+        drawPlyMsg(C, S, P, A, 512, 25)    
+    }
+    
+    ## redraw the kick messages retard
+    function redrawKickMessages() {
+        if (!Autokick) {return}
+        if (ActivePlys[1, number] & !P1) {
+            drawPlyMsg(vec(230, 0, 0), "You will be removed from the game", 1, 0, 340, 22)
+        }
+        if (ActivePlys[2, number] & !P2) {
+            drawPlyMsg(vec(230, 0, 0), "You will be removed from the game", 2, 0, 340, 22)
+        }
+        if (ActivePlys[3, number] & !P3) {
+            drawPlyMsg(vec(230, 0, 0), "You will be removed from the game", 3, 0, 340, 22)
+        }
+        if (ActivePlys[4, number] & !P4) {
+            drawPlyMsg(vec(230, 0, 0), "You will be removed from the game", 4, 0, 340, 22)
+        }
+    }
+    
+    ## hide ply messages and redraw kick messages
+    function hidePlyMessages() {
+        for (I=24, 40, 1) {
+            EGP:egpRemove(I)
+            
+        }
+        redrawKickMessages()
+    }
+    
+    function array getHand(P:number) {
+        switch(P) {
+            case 1,
+                return H1
+            case 2,
+                return H2
+            case 3,
+                return H3
+            case 4,
+                return H4    
+        }
+        return array()
+    }
+    
+    function playerDrawCards(P:number, N:number) {
+        local Hand = getHand(P)
+        for (I=1, N, 1) {
+            Hand[Hand:count() + 1, number] = drawCard()
+        }
+    }
+    
+    function number playerDrawCard(P:number) {
+        local Hand = getHand(P)
+        local Card = drawCard()
+        Hand[Hand:count() + 1, number] = Card
+        return Card
+    }
+    
+    ## Draw turn messages
+    function drawPlyTurn() {
+        hidePlyMessages()
+        local Val = getCardValue(CurrCard)
+        if (Drawing) {
+            drawPlyMsg(CardColors[Turn + 1, vector], "Drawing...", Turn, 0)
+        } elseif (bAnd(OTurn, 8) == 8) {
+            drawPlyMsg(CardColors[Turn + 1, vector], "Choose a color!", Turn, 0)
+        } elseif (!SkipEffect & Val == 10) {
+            drawPlyMsg(CardColors[Turn + 1, vector], "Skipped :(", Turn, 1)
+        } elseif (!SkipEffect & Val == 12) {
+            drawPlyMsg(CardColors[Turn + 1, vector], "Draw " + Stack + "!", Turn, 1)
+        } elseif (!SkipEffect & Val == 14) {
+            drawPlyMsg(CardColors[Turn + 1, vector], "Draw 4!", Turn, 1)
+        } else {
+            drawPlyMsg(CardColors[Turn + 1, vector], "Your Turn!", Turn, 1)
+        }
+    }
+    
+    function number playerHasDraw2(Ply:number) {
+        local Hand = getHand(Ply)
+        for (I=1, Hand:count(), 1) {
+            if (getCardValue(Hand[I, number]) == 12) {
+                return 1
+            }
+        }
+        return 0
+    }
+    
+    ## Cycle to next turn
+    function nextTurn() {
+        if (ActivePlys:count() < 2) {
+            reset()
+        }
+        do {
+            Turn += Direction
+            if (Turn > 4) {
+                Turn = 1  
+            } elseif (Turn < 1) {
+                Turn = 4    
+            }
+        } while (ActivePlys[Turn, number] != 1)
+        
+        
+        # 0-9 normal faces
+        # 10 Skip
+        # 11 Reverse
+        # 12 Draw 2
+        # 13 Wild
+        # 14 Draw 4
+        OTurn = 0
+        CStacking = 0
+        local Val = getCardValue(CurrCard)
+        if (!SkipEffect) {
+            if (Val == 10) {
+                timer("nextTurnSkipEffect", TurnDelay)
+                return
+            } elseif (Val == 12) {
+                if (Draw2Stacking & playerHasDraw2(Turn)) {
+                    OTurn = Turn
+                    CStacking = 1
+                    return
+                } else {
+                    playerDrawCards(Turn, Stack)
+                    timer("nextTurnSkipEffect", TurnDelay)
+                    return
+                }
+            } elseif (Val == 14) {
+                playerDrawCards(Turn, Stack)
+                timer("nextTurnSkipEffect", TurnDelay)
+                return
+            }
+        }
+        OTurn = Turn
+        save()
+    }
+    
+    ## handle player controls :))
+    function handleInput(Index:number, Hand:array) {
+        if (!perf(50)) {return}
+        
+        ## Draw 4 Logic
+        if (bAnd(OTurn, 8) == 8 & Turn == bAnd(OTurn, 7)) {
+            if (Index > 4 | Index < 1) {return}
+            timer("nextTurn", TurnDelay)
+            OTurn = 0
+            CurrCard = CurrCard + 2 ^ (3 + Index)
+            renderCard(8, vec2(256, 256), CurrCard, 1.7)
+            return
+        }
+        
+        
+        ## draw cards from deck
+        if (Index == -1) {
+            if (CStacking) {
+                playerDrawCards(Turn, Stack)
+                timer("nextTurnSkipEffect", TurnDelay)
+                OTurn = 0
+                return
+            }
+            
+            hidePlyMessages()
+            drawPlyMsg(CardColors[Turn + 1, vector], "Drawing...", Turn, 0)
+            if (!DrawOnce) {
+                playerDrawCard(Turn)   
+            } else {
+                local Card = playerDrawCard(Turn)
+                if (!compareCards(Card, CurrCard)) {
+                    OTurn = 0
+                    timer("nextTurnSkipEffect", TurnDelay)
+                }
+            }
+            return
+        }
+        
+        local Card = Hand[Index, number]
+        local Val = getCardValue(Card)
+        if (Card == 0 || !compareCards(Card, CurrCard)) {return}
+        if (CStacking & !compareCardsValue(Card, CurrCard)) {return}
+        Animate = 1
+        SysDiff = systime()
+        OTurn = 0
+        
+        EGP:egpClear()
+        # absolutely fuck the ordering of egp objects
+        # who made this shit oml
+        renderCard(1, vec2(256, 256), CurrCard, 1.7)
+        renderCard(8, vec2(256, 256), Card, 1.7)
+        
+        local N = 8
+        switch(Turn) {
+            case 1,
+                EGP:egpPos(N, vec2(256, 530))
+                break
+            case 2,
+                EGP:egpPos(N, vec2(530, 256))
+                break
+            case 3,
+                EGP:egpPos(N, vec2(256, -30))
+                break
+            case 4,
+               EGP:egpPos(N, vec2(-30, 256))
+                break
+        }
+        
+        # 0-9 normal faces
+        # 10 Skip
+        # 11 Reverse
+        # 12 Draw 2
+        # 13 Wild
+        # 14 Draw 4
+        
+        CurrCard = Card
+        OTurn = 0
+        Hand:remove(Index)
+        
+        if (Hand:count() == 0) {
+            drawPlyMsg(CardColors[Turn + 1, vector], "You Win!!", Turn, 0)
+            OTurn = 0
+            Turn = 0
+            return    
+        }
+        
+        if (Val == 10) {
+            SkipEffect = 1  
+        } elseif (Val == 11) {
+            Direction = -Direction
+        } elseif (Val == 12) {
+            Stack += 2
+            SkipEffect = 1
+        } elseif (Val == 13) {
+            OTurn = bOr(Turn, 8)
+            drawPlyTurn()
+            return
+        } elseif (Val == 14) {
+            OTurn = bOr(Turn, 8)
+            SkipEffect = 1
+            Stack = 4
+            drawPlyTurn()
+            return
+        }
+        
+        
+        
+        drawPlyTurn()
+        timer("nextTurn", TurnDelay)
+    }
+    
+    function load() {
+        if (LoadData[1, number] == 0) {return}
+        stopAllTimers()
+        
+        Deck = array()
+        H1 = array()
+        H2 = array()
+        H3 = array()
+        H4 = array()
+        Active = 0
+        Direction = 1
+        Plys = 0
+        Turn = 0
+        ActivePlys = table()
+        Animate = 0
+        SkipEffect = 0
+        Drawing = 0
+        Stack = 0
+        CStacking = 0
+        OTurn = 0
+    
+        Active = 1
+        Turn = LoadData[1, number]
+        Direction = LoadData[2, number]
+        ActivePlys[1, number] = LoadData[3, number]
+        ActivePlys[2, number] = LoadData[4, number]
+        ActivePlys[3, number] = LoadData[5, number]
+        ActivePlys[4, number] = LoadData[6, number]
+        CurrCard = LoadData[7, number]
+        
+        
+        local Cur = 9
+        if (ActivePlys[1, number]) {
+            local I = 1
+            do {
+                H1[I, number] = LoadData[Cur, number]    
+                Cur++
+                I++            
+            } while(LoadData[Cur, number] != 0)
+        }
+        Cur++
+        
+        if (ActivePlys[2, number]) {
+            local I = 1
+            do {
+                H2[I, number] = LoadData[Cur, number]    
+                Cur++
+                I++            
+            } while(LoadData[Cur, number] != 0)
+        }
+        Cur++
+        
+        if (ActivePlys[3, number]) {
+            local I = 1
+            do {
+                H3[I, number] = LoadData[Cur, number]    
+                Cur++
+                I++            
+            } while(LoadData[Cur, number] != 0)
+        }
+        Cur++
+        
+        if (ActivePlys[4, number]) {
+            local I = 1
+            do {
+                H4[I, number] = LoadData[Cur, number]    
+                Cur++
+                I++            
+            } while(LoadData[Cur, number] != 0)
+        }
+        OTurn = Turn
+        CanSave = 0
+        
+        EGP:egpClear()
+        renderCard(1, vec2(256, 256), CurrCard, 1.7)
+        drawPlyTurn()
+    }
+    
+    # UNO Text
+    EGP:egpText(2, "UNO", vec2(256, 256))
+    EGP:egpSize(2, 200)
+    EGP:egpColor(2, vec(230, 200, 0))
+    EGP:egpAlign(2, 1, 1)
+    
+    # Current Players Text
+    EGP:egpText(3, "Waiting for players... (0/4)", vec2(256, 330))
+    EGP:egpSize(3, 25)
+    EGP:egpAlign(3, 1, 0)
+    
+    # Start Button
+    EGP:egpRoundedBox(4, vec2(256, 512 - 80), vec2(220, 60))
+    EGP:egpColor(4, vec(0, 200, 0))
+    
+    EGP:egpText(5, "Press Space to Start", vec2(256, 512 - 80))
+    EGP:egpSize(5, 25)
+    EGP:egpAlign(5, 1, 1)
+    
+    # Set Start Button invisible
+    EGP:egpAlpha(4, 0)
+    EGP:egpAlpha(5, 0)
+    
+}
+###INIT###
+
+##TURN TIMERS
+if (clk("nextTurn")) {
+    SkipEffect = 0
+    hidePlyMessages()
+    nextTurn()
+    drawPlyTurn()    
+}
+
+if (clk("nextTurnSkipEffect")) {
+    SkipEffect = 1
+    hidePlyMessages()
+    nextTurn()
+    drawPlyTurn()
+    if (!CStacking) {Stack = 0}
+}
+
+if (clk("save")) {
+    SaveData[1, number] = Turn
+    SaveData[2, number] = Direction
+    SaveData[3, number] = ActivePlys[1, number]
+    SaveData[4, number] = ActivePlys[2, number]
+    SaveData[5, number] = ActivePlys[3, number]
+    SaveData[6, number] = ActivePlys[4, number]
+    SaveData[7, number] = CurrCard
+    
+        
+    local Cur = 9
+    if (ActivePlys[1, number]) {
+        for (I=1, H1:count(), 1) {
+            SaveData[Cur, number] = H1[I, number]
+            Cur++
+        }
+        Cur++
+    }
+        
+    if (ActivePlys[2, number]) {
+        for (I=1, H2:count(), 1) {
+            SaveData[Cur, number] = H2[I, number]
+            Cur++
+        }
+        Cur++
+    }
+        
+    if (ActivePlys[3, number]) {
+        for (I=1, H3:count(), 1) {
+            SaveData[Cur, number] = H3[I, number]
+            Cur++
+        }
+        Cur++
+    }
+        
+    if (ActivePlys[4, number]) {
+        for (I=1, H4:count(), 1) {
+            SaveData[Cur, number] = H4[I, number]
+            Cur++
+        }
+        Cur++
+    }
+}
+
+#if (clk("draw"))
+
+
+# Check Players
+if (first() | ~P1 | ~P2 | ~P3 | ~P4) {
+    if (!Active) {
+        Plys = P1 + P2 + P3 + P4
+        EGP:egpSetText(3, "Waiting for players... (" + toString(Plys) + "/4)")
+        
+        if (P1 & (Plys >= 2 | AllPlayersAutoJoin)) {
+            EGP:egpAlpha(4, 255)
+            EGP:egpAlpha(5, 255)     
+        } else {
+            EGP:egpAlpha(4, 0)
+            EGP:egpAlpha(5, 0)
+        }
+    } else {
+        if(Autokick) {
+            if (~P1 & ActivePlys[1, number] & !P1) {
+                timer("remove1", AutokickDelay)
+                drawPlyMsg(vec(230, 0, 0), "You will be removed from the game", 1, 0, 340, 22)
+            } elseif (~P2 & ActivePlys[2, number] & !P2) {
+                timer("remove2", AutokickDelay)
+                drawPlyMsg(vec(230, 0, 0), "You will be removed from the game", 2, 0, 340, 22)
+            } elseif (~P3 & ActivePlys[3, number] & !P3) {
+                timer("remove3", AutokickDelay)
+                drawPlyMsg(vec(230, 0, 0), "You will be removed from the game", 3, 0, 340, 22)
+            } elseif (~P4 & ActivePlys[4, number] & !P4) {
+                timer("remove4", AutokickDelay)
+                drawPlyMsg(vec(230, 0, 0), "You will be removed from the game", 4, 0, 340, 22)
+            }
+        }
+            
+        if(AutoJoin & perf(70)) {
+            if (~P1 & !ActivePlys[1, number] & P1) {
+                ActivePlys[1, number] = 1
+                for (I=1, LateCards, 1) {
+                    H1[I, number] = drawCard()
+                }
+            } elseif (~P2 & !ActivePlys[2, number] & P2) {
+                ActivePlys[2, number] = 1
+                for (I=1, LateCards, 1) {
+                    H2[I, number] = drawCard()
+                }
+            } elseif (~P3 & !ActivePlys[3, number] & P3) {
+                ActivePlys[3, number] = 1
+                for (I=1, LateCards, 1) {
+                    H3[I, number] = drawCard()
+                }
+            } elseif (~P4 & !ActivePlys[4, number] & P4) {
+                ActivePlys[4, number] = 1
+                for (I=1, LateCards, 1) {
+                    H4[I, number] = drawCard()
+                }
+            }
+        }
+    }
+    
+
+}
+
+if(~Autokick & Autokick) {
+    if (ActivePlys[1, number] & !P1) {
+        timer("remove1", AutokickDelay)
+        drawPlyMsg(vec(230, 0, 0), "You will be removed from the game", 1, 0, 340, 22)
+    }
+    if (ActivePlys[2, number] & !P2) {
+        timer("remove2", AutokickDelay)
+        drawPlyMsg(vec(230, 0, 0), "You will be removed from the game", 2, 0, 340, 22)
+    }
+    if (ActivePlys[3, number] & !P3) {
+        timer("remove3", AutokickDelay)
+        drawPlyMsg(vec(230, 0, 0), "You will be removed from the game", 3, 0, 340, 22)
+    } 
+    if (ActivePlys[4, number] & !P4) {
+        timer("remove4", AutokickDelay)
+        drawPlyMsg(vec(230, 0, 0), "You will be removed from the game", 4, 0, 340, 22)
+    }
+}
+
+
+## autokick timer garbage
+if (Autokick) {
+    if (clk("remove1")) {
+        if (!P1) {
+            P1 = 0
+            H1 = array()
+            ActivePlys:unset(1)
+            if (ActivePlys:count() < 2) {
+                reset()
+            }
+            if (Turn == 1) {
+                nextTurn()    
+            }
+        }
+        drawPlyTurn()
+    } elseif (clk("remove2")) {
+        if (!P2) {
+            P2 = 0
+            H2 = array()
+            ActivePlys:unset(2)
+            if (ActivePlys:count() < 2) {
+                reset()
+            }
+            if (Turn == 2) {
+                nextTurn()    
+            }
+        }
+        drawPlyTurn()
+    } elseif (clk("remove3")) {
+        if (!P3) {
+            P3 = 0
+            H3 = array()
+            ActivePlys:unset(3)
+            if (ActivePlys:count() < 2) {
+                reset()
+            }
+            if (Turn == 3) {
+                nextTurn()    
+            }
+        }
+        drawPlyTurn()
+    } elseif (clk("remove4")) {
+        if (!P4) {
+            P4 = 0
+            H4 = array()
+            ActivePlys:unset(4)
+            if (ActivePlys:count() < 2) {
+                reset()
+            }
+            if (Turn == 4) {
+                nextTurn()    
+            }
+        }
+        drawPlyTurn()
+    }
+}
+##
+
+### Start Game
+if (!Active & ~Start & Start) {
+    if (P1 | AllPlayersAutoJoin) {
+        ActivePlys[1, number] = 1
+        for (I=1, StartCards, 1) {
+            H1[I, number] = drawCard()
+        }
+    }
+    if (P2 | AllPlayersAutoJoin) {
+        ActivePlys[2, number] = 1
+        for (I=1, StartCards, 1) {
+            H2[I, number] = drawCard()
+        }
+    }
+    if (P3 | AllPlayersAutoJoin) {
+        ActivePlys[3, number] = 1
+        for (I=1, StartCards, 1) {
+            H3[I, number] = drawCard()
+        }
+    }
+    if (P4 | AllPlayersAutoJoin) {
+        ActivePlys[4, number] = 1
+        for (I=1, StartCards, 1) {
+            H4[I, number] = drawCard()
+        }
+    }
+    
+    SkipEffect = 1
+    Turn = round(random(1, 4))
+    nextTurn()
+    Active = 1
+    CurrCard = drawCard()
+    EGP:egpClear()
+    renderCard(1, vec2(256, 256), CurrCard, 1.7)
+    drawPlyTurn()
+    Animate = 0
+    Stack = 0
+    SysDiff = systime()
+}
+###
+
+# Pass player input into handler function
+local CTurn = bAnd(OTurn, 7)
+if (~C1 & C1 != 0 & CTurn == 1) {
+    handleInput(C1, H1)
+} elseif (~C2 & C2 != 0 & CTurn == 2) {
+    handleInput(C2, H2)
+} elseif (~C3 & C3 != 0 & CTurn == 3) {
+    handleInput(C3, H3)
+} elseif (~C4 & C4 != 0 & CTurn == 4) {
+    handleInput(C4, H4)
+}
+#
+
+if (~Load) {
+    load()
+}
+
+
+# Animate cards!!!
+event tick() {
+    if (Animate & perf(50)) {
+        local N = 8
+        local Pos = EGP:egpPos(N)
+        EGP:egpPos(N, vec2(lerp(Pos:x(), 256, (systime() - SysDiff) * 3), lerp(Pos:y(), 256, (systime() - SysDiff) * 3)))
+        if (round(EGP:egpPos(N)) == vec2(256, 256)) {
+            EGP:egpPos(N, vec2(256, 256))
+            Animate = 0  
+        }
+        SysDiff = systime()
+    }
+}
+#
+# Made by Axel

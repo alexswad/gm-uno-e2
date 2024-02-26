@@ -1,0 +1,309 @@
+# Made by Axel
+@name UnoPC1.6
+@inputs EGP:wirelink Hand:array Left Right Select Reset Ply:entity CurrCard Turn Player Space CStacking
+@outputs Card
+@persist Selected CardColors:array ArrCursor CSize CardsValid
+@trigger
+
+if (~Reset | duped()) {
+    reset()
+}
+
+ScrH = egpScrH(Ply)
+ScrW = egpScrW(Ply)
+
+CTurn = bAnd(Turn, 7)
+
+if (first()) {
+    CSize = 1
+    # black, green, blue, yellow, red
+    CardColors = array(vec(0, 0, 0), vec(0, 200, 0), vec(0, 0, 255), vec(200, 180, 0), vec(255, 0, 0))
+    Card = 0
+    Selected = 0
+    ArrCursor = 1000
+    
+    function number getCardSuite(N:number) {
+        return max(0, log2(bAnd(abs(N), 240)) - 3)
+    }
+    
+    function number getCardValue(N:number) {
+        return max(0, bAnd(abs(N), 15))
+    }
+    
+    function number compareCards(A:number, B:number) {
+        local ASuite = getCardSuite(A)
+        local AValue = getCardValue(A)
+        local BValue = getCardValue(B)
+        local BSuite = getCardSuite(B)
+        
+        if (CStacking) {
+            return AValue == BValue
+        }
+        
+        if (ASuite != 0 & BSuite != 0 & AValue != BValue & ASuite != BSuite) {
+            return 0    
+        }
+        return 1
+    }
+    
+    
+    
+    function renderCard(N:number, P:vector2, C:number, S:number) {
+        EGP:egpRoundedBox(N, P, vec2(98 * S, 150 * S))
+        
+        EGP:egpRoundedBox(N + 1, vec2(), vec2((98 - 10) * S, (150 - 10) * S))
+        EGP:egpColor(N + 1, CardColors[getCardSuite(C) + 1, vector])
+        EGP:egpParent(N + 1, N)
+        
+        if (C < -1) {return}
+        
+        local CValue = getCardValue(C)
+        if (CValue <= 9) {
+            EGP:egpText(N + 2, toString(CValue), vec2(0, 0))
+            EGP:egpSize(N + 2, 100 * S)
+            EGP:egpAlign(N + 2, 1, 1)
+            EGP:egpParent(N + 2, N)
+            if (CValue == 9 | CValue == 6) {
+                EGP:egpLine(N + 3, vec2(-35, 45) * S, vec2(35, 45) * S)
+                EGP:egpSize(N + 3, 5)
+                EGP:egpParent(N + 3, N)
+            }
+        } elseif (CValue == 10) {
+            EGP:egpCircle(N + 2, vec2(), vec2(30, 30) * S)
+            EGP:egpParent(N + 2, N)
+            
+            EGP:egpCircle(N + 3, vec2(), vec2(25, 25) * S)
+            EGP:egpParent(N + 3, N)
+            EGP:egpColor(N + 3, CardColors[getCardSuite(C) + 1, vector])
+            
+            EGP:egpLine(N + 4, vec2(-20, 20) * S, vec2(20, -20) * S)
+            EGP:egpSize(N + 4, 5 * S)
+            EGP:egpParent(N + 4, N)
+        } elseif (CValue == 11) {
+            EGP:egpLine(N + 2, vec2(-20, 30) * S, vec2(20, -10) * S)
+            EGP:egpSize(N + 2, 5 * S)
+            EGP:egpParent(N + 2, N)
+            
+            EGP:egpTriangle(N + 3, vec2(-25, 25) * S, vec2(-15, 35) * S, vec2(-35, 45) * S)
+            EGP:egpParent(N + 3, N)
+            
+            EGP:egpLine(N + 4, vec2(-20, 15) * S, vec2(20, -25) * S)
+            EGP:egpSize(N + 4, 5 * S)
+            EGP:egpParent(N + 4, N)
+            
+            EGP:egpTriangle(N + 5, vec2(25, -20) * S, vec2(15, -30) * S, vec2(35, -40) * S)
+            EGP:egpParent(N + 5, N)
+        } elseif (CValue == 12) {
+            EGP:egpText(N + 2, "+2", vec2(0, 0))
+            EGP:egpSize(N + 2, 59 * S)
+            EGP:egpAlign(N + 2, 1, 1)
+            EGP:egpParent(N + 2, N)
+        } elseif (CValue == 13 | CValue == 14) {
+            EGP:egpBox(N + 2, vec2(-15, -15) * S, vec2(30, 30) * S)
+            EGP:egpColor(N + 2, CardColors[2, vector])
+            EGP:egpParent(N + 2, N)
+            
+            EGP:egpBox(N + 3, vec2(15, -15) * S, vec2(30, 30) * S)
+            EGP:egpColor(N + 3, CardColors[3, vector])
+            EGP:egpParent(N + 3, N)
+            
+            EGP:egpBox(N + 4, vec2(-15, 15) * S, vec2(30, 30) * S)
+            EGP:egpColor(N + 4, CardColors[4, vector])
+            EGP:egpParent(N + 4, N)
+            
+            EGP:egpBox(N + 5, vec2(15, 15) * S, vec2(30, 30) * S)
+            EGP:egpColor(N + 5, CardColors[5, vector])
+            EGP:egpParent(N + 5, N)
+            
+            if (CValue == 14) {
+                EGP:egpText(N + 6, "+4", vec2(0, 0))
+                EGP:egpSize(N + 6, 50 * S)
+                EGP:egpAlign(N + 6, 1, 1)
+                EGP:egpParent(N + 6, N)
+            }
+        }
+        
+        EGP:egpRoundedBox(N + 7, vec2(0, 0), vec2(98 * S, 150 * S))
+        EGP:egpColor(N + 7, vec4(0, 0, 0, 0))
+        EGP:egpParent(N + 7, N)         
+    }
+    
+    function renderColors() {
+        for (I=1, 4, 1) {
+            renderCard(4 + I * 2, vec2((105 * (I - 1) + -105 * 1.5) + ScrW / 2, ScrH / 2 - 150), -(2^(I+3)), 1)
+        }
+    }
+    
+    function resetColorSelected() {
+        for (I=1, 4, 1) {
+           EGP:egpColor(4 + I * 2, vec(255, 255, 255))
+        }
+        EGP:egpColor(4 + Selected * 2, vec(230, 130, 0))
+    }
+    
+    function removeColors() {
+        for (I=5, 13, 1) {
+            EGP:egpRemove(I)
+        }    
+    }
+    
+    function updateCards() {
+        CardsValid = 0
+        Selected = 0
+        for (I=1, Hand:count(), 1) {
+            if (Turn == Player & !compareCards(CurrCard, Hand[I, number])) {
+                EGP:egpAlpha(20 + I * 9 + 7, 200)
+                EGP:egpColor(20 + I * 9, vec(255, 255, 255))
+            } else {
+                EGP:egpAlpha(20 + I * 9 + 7, 0)
+                if (Turn == Player & Selected == 0) {
+                    CardsValid = 1
+                    Selected = I
+                    EGP:egpColor(20 + I * 9, vec(230, 130, 0))
+                    EGP:egpPos(20 + I * 9, EGP:egpPos(20 + I * 9):setY(ScrH - 170 * CSize / 2 - 20))
+                } else {
+                    EGP:egpColor(20 + I * 9, vec(255, 255, 255))    
+                }
+            }
+            
+        }
+        
+        if (CTurn == Player & CTurn != Turn) {
+            Selected = 1
+            renderColors()
+            resetColorSelected()
+        } else {
+            removeColors()
+        }
+    }
+
+    function resetSelected() {
+        for (I=1, Hand:count(), 1) {
+            EGP:egpColor(20 + I * 9, vec(255, 255, 255))
+            EGP:egpPos(20 + I * 9, EGP:egpPos(20 + I * 9):setY(ScrH - 150 * CSize / 2 - 20))
+        }
+        EGP:egpColor(20 + Selected * 9, vec(230, 130, 0))
+        EGP:egpPos(20 + Selected * 9, EGP:egpPos(20 + Selected * 9):setY(ScrH - 170 * CSize / 2 - 20))
+    }
+    
+    function renderCards() {
+        while(ArrCursor < Hand:count() & perf(65)) {
+            ArrCursor++
+            renderCard(20 + ArrCursor * 9, vec2((ArrCursor * 98 + -98 * (Hand:count() + 1) / 2) * CSize + ScrW / 2, ScrH - 150 * CSize / 2 - 20), Hand[ArrCursor, number], CSize - 0.02)
+        }
+        if (ArrCursor < Hand:count()) {
+            interval(100)    
+        } else {
+            updateCards()    
+        }
+    }
+    
+    function renderAllCards() {
+        EGP:egpClear()
+        EGP:egpText(1, "A&D - Scroll Cards/Color    Space - Skip Stack", vec2(10, 10))
+        EGP:egpSize(1, 35)
+        EGP:egpColor(1, vec(238, 0, 255))
+        EGP:egpText(2, "Left Click - Select Card/Draw Card", vec2(10, 40))
+        EGP:egpSize(2, 30)
+        EGP:egpColor(2, vec(238, 0, 255))
+        ArrCursor = 0
+        
+        
+        if (Hand:count() > 20) {
+            CSize = 0.5    
+        }elseif (Hand:count() > 10) {
+            CSize = 0.75
+        } else {
+            CSize = 1    
+        }
+        CSize = CSize * 1920 / ScrW
+        renderCards()
+        if (CTurn == Player & CTurn != Turn) {
+            Selected = 1
+            renderColors()
+            resetColorSelected()
+        } else {
+            removeColors()
+        }
+    }
+    
+    
+    if (Ply:isValid()) {
+        renderAllCards()
+    }
+
+    
+}
+
+if (~Ply | (Ply:isValid() & ~Hand)) {
+    EGP:egpClear()
+    timer("resetCards", 100)   
+}
+
+if (Ply:isValid()) {
+    if (clk("resetCards")) {
+        renderAllCards()
+    }
+    
+    if (clk() & ArrCursor <= Hand:count()) {
+        renderCards()
+    }
+
+    if (~Turn & perf(50)) {
+        updateCards()
+        timer("clearSelected", 50)
+    }
+    
+    if (clk("clearSelected")) {
+        resetSelected()
+        if (CTurn == Player & CTurn != Turn) {
+            renderColors()
+            resetColorSelected()
+        }
+    }
+}
+
+if (~Left & Left & CardsValid & Turn == Player & perf(50)) {
+    do {
+        Selected -= 1
+        if (Selected < 1) {
+            Selected = Hand:count()
+        }
+    } while (!compareCards(CurrCard, Hand[Selected, number]))
+    resetSelected()
+} elseif (~Left & Left & bAnd(Turn, 8) == 8) {
+    Selected -= 1
+    if (Selected < 1) {
+        Selected = 4
+    }
+    resetColorSelected()
+} elseif (~Right & Right & CardsValid & Turn == Player & perf(50)) {
+    do {
+        Selected += 1
+        if (Selected > Hand:count()) {
+            Selected = 1
+        }
+    } while (!compareCards(CurrCard, Hand[Selected, number]))
+    resetSelected()
+} elseif (~Right & Right & bAnd(Turn, 8) == 8) {
+    Selected += 1
+    if (Selected > 4) {
+        Selected = 1
+    }
+    resetColorSelected()
+}
+
+if (~Select & Select & CTurn == Player & perf(50)) {
+    if (Selected == 0 | (!CardsValid & CTurn == Turn)) {
+        Card = -1
+    } else {
+        Card = Selected
+    }
+} elseif (~Select & perf(50)) {
+    Card = 0
+}
+
+if (~Space & Space & CStacking & CTurn == Player & perf(50)) {
+    Card = -1
+}
+# Made by Axel
